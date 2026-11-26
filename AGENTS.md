@@ -21,4 +21,4 @@ The collector reads the owner's Claude Code login (credentials file or macOS Key
 
 ## Login agent
 
-`bin/install-login-agent` points launchd at the clone it is run from, so it is run from `~/code/gauge`, never a worktree. `--print` shows the definition without installing.
+`bin/install-login-agent` points launchd at the clone it is run from, so it is run from `~/code/gauge`, never a worktree. `--print` shows the definition without installing. The running agent logs to `~/Library/Logs/gauge/gauge.log`; read it first when the page is down.

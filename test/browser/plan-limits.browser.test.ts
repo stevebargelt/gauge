@@ -16,43 +16,50 @@ const CHROME_LOCATIONS = [
   "/usr/bin/google-chrome",
   "/usr/bin/chromium",
 ];
+const HOUR = 3_600_000;
 
-// What the stubbed sources report. Each test sets the parts it needs.
-const fixture = {
-  mode: "full" as "full" | "empty" | "claude-error",
-  delayMs: 0,
-  collectorThrows: false,
-  claudeUsedPct: 42,
+// The scenario the stubbed sources serve. The server reads it on every
+// collection, so a test changes what the page receives by changing it.
+type Scenario = {
+  mode: "full" | "empty" | "claude-error";
+  collectorThrows: boolean;
+  claudeUsedPct: number;
+  /** While set, every source waits on it: the page stays in its loading state until it resolves. */
+  gate: Promise<void> | null;
 };
+const scenario: Scenario = { mode: "full", collectorThrows: false, claudeUsedPct: 42, gate: null };
 
-function stubbedCollector(): CollectorOptions {
+function scenarioCollector(): CollectorOptions {
   const homeDir = mkdtempSync(join(tmpdir(), "gauge-browser-"));
   return {
     get env() {
-      return fixture.mode === "empty"
+      return scenario.mode === "empty"
         ? {}
         : { ANTHROPIC_API_KEY: "test-only", OPENAI_API_KEY: "test-only", CLAUDE_CODE_USE_BEDROCK: "1", AWS_PROFILE: "work" };
     },
     homeDir,
     claudeVersion: "test",
     readClaudeCredential: () => {
-      if (fixture.collectorThrows) throw new Error("collector failure");
-      return fixture.mode === "empty" ? null : { accessToken: "sk-ant-oat01-test-only", subscriptionType: "max20" };
+      if (scenario.collectorThrows) throw new Error("collector failure");
+      return scenario.mode === "empty" ? null : { accessToken: "sk-ant-oat01-test-only", subscriptionType: "max20" };
     },
     fetchImpl: async () => {
-      await new Promise((resolve) => setTimeout(resolve, fixture.delayMs));
-      if (fixture.mode === "claude-error") throw new TypeError("fetch failed");
+      await scenario.gate;
+      if (scenario.mode === "claude-error") throw new TypeError("fetch failed");
       return Response.json({
-        limits: [{ kind: "session", percent: fixture.claudeUsedPct, resets_at: new Date(Date.now() + 2 * 3_600_000).toISOString() }],
+        limits: [
+          { kind: "session", percent: scenario.claudeUsedPct, resets_at: new Date(Date.now() + 2 * HOUR).toISOString() },
+          { kind: "weekly_all", percent: 28, resets_at: new Date(Date.now() + 72 * HOUR).toISOString() },
+        ],
       });
     },
     codexAppServerQuery: async () => {
-      await new Promise((resolve) => setTimeout(resolve, fixture.delayMs));
-      if (fixture.mode === "empty") return null;
+      await scenario.gate;
+      if (scenario.mode === "empty") return null;
       return {
         planType: "prolite",
-        primary: { used_percent: 61, window_minutes: 300, resets_at: (Date.now() + 3_600_000) / 1000 },
-        secondary: null,
+        primary: { used_percent: 61, window_minutes: 300, resets_at: (Date.now() + HOUR) / 1000 },
+        secondary: { used_percent: 17, window_minutes: 10080, resets_at: (Date.now() + 96 * HOUR) / 1000 },
         observedAt: new Date().toISOString(),
         source: "codex-app-server",
       };
@@ -67,7 +74,7 @@ let baseUrl = "";
 before(async () => {
   const executablePath = process.env.CHROME_PATH ?? CHROME_LOCATIONS.find((path) => existsSync(path));
   assert.ok(executablePath, "Chrome was not found; set CHROME_PATH to run the browser tests");
-  server = createAppServer({ collector: stubbedCollector() });
+  server = createAppServer({ collector: scenarioCollector() });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   browser = await chromium.launch({ executablePath, headless: true });
@@ -81,82 +88,97 @@ after(async () => {
 
 beforeEach(() => {
   resetPlanUsageCacheForTests();
-  Object.assign(fixture, { mode: "full", delayMs: 0, collectorThrows: false, claudeUsedPct: 42 });
+  Object.assign(scenario, { mode: "full", collectorThrows: false, claudeUsedPct: 42, gate: null });
 });
 
-test("the page renders every service, keeps the last readings when a refresh fails, and shows a successful refresh", async () => {
-  const page = await newPage({ width: 1440, height: 1000 });
-  await page.goto(baseUrl);
-  await page.locator(".plan-service").first().waitFor();
+test("the page renders every service and window, keeps the last readings when a refresh fails, and shows a successful refresh", async () => {
+  await withPage({ width: 1440, height: 1000 }, async (page) => {
+    await page.goto(baseUrl);
+    await page.locator(".plan-service").first().waitFor();
 
-  assert.equal(await page.title(), "gauge");
-  assert.deepEqual(await page.locator(".plan-service-name-row strong").allTextContents(), [
-    "Claude Code", "Anthropic API", "Amazon Bedrock", "Codex", "OpenAI API",
-  ]);
-  assert.deepEqual(await page.locator(".plan-status").allTextContents(), [
-    "live", "not applicable", "not configured", "live", "not applicable",
-  ]);
-  assert.equal(await page.locator(".plan-dial-progress").count(), 2, "API-key and Bedrock channels must not draw progress rings");
-  assert.equal(await page.locator(".plan-window-label strong").first().innerText(), "42%");
+    assert.equal(await page.title(), "gauge");
+    assert.deepEqual(await page.locator(".plan-service-name-row strong").allTextContents(), [
+      "Claude Code", "Anthropic API", "Amazon Bedrock", "Codex", "OpenAI API",
+    ]);
+    assert.deepEqual(await page.locator(".plan-status").allTextContents(), [
+      "live", "not applicable", "not configured", "live", "not applicable",
+    ]);
+    assert.equal(await page.locator(".plan-dial-progress").count(), 2, "API-key and Bedrock services must not draw progress rings");
 
-  fixture.collectorThrows = true;
-  await page.getByRole("button", { name: "refresh" }).click();
-  await page.locator(".plan-refresh-error").waitFor();
-  assert.match(await page.locator(".plan-refresh-error").innerText(), /sync failed \(HTTP 500\)/);
-  assert.equal(await page.locator(".plan-service").count(), 5, "a failed refresh must keep the last successful readings");
+    const windows = await page.locator(".plan-window").evaluateAll((elements) => elements.map((element) => ({
+      label: element.querySelector(".plan-window-label span")?.textContent,
+      used: element.querySelector(".plan-window-label strong")?.textContent,
+      detail: element.querySelector(".plan-window-detail")?.textContent?.replace(/\s+/g, " ").trim(),
+    })));
+    assert.deepEqual(windows.map(({ label, used }) => [label, used]), [
+      ["5-hour limit", "42%"], ["Weekly · all models", "28%"], ["5h", "61%"], ["Weekly", "17%"],
+    ]);
+    for (const window of windows) assert.match(window.detail ?? "", /^resets in \d+[mhd] pace \d+%$/, JSON.stringify(window));
 
-  fixture.collectorThrows = false;
-  fixture.claudeUsedPct = 55;
-  await page.getByRole("button", { name: "refresh" }).click();
-  await page.locator(".plan-window-label strong", { hasText: "55%" }).waitFor();
-  assert.equal(await page.locator(".plan-refresh-error").count(), 0);
-  await page.close();
+    scenario.collectorThrows = true;
+    await page.getByRole("button", { name: "refresh" }).click();
+    await page.locator(".plan-refresh-error").waitFor();
+    assert.match(await page.locator(".plan-refresh-error").innerText(), /sync failed \(HTTP 500\)/);
+    assert.equal(await page.locator(".plan-service").count(), 5, "a failed refresh must keep the last successful readings");
+
+    scenario.collectorThrows = false;
+    scenario.claudeUsedPct = 55;
+    await page.getByRole("button", { name: "refresh" }).click();
+    await page.locator(".plan-window-label strong", { hasText: "55%" }).waitFor();
+    assert.equal(await page.locator(".plan-refresh-error").count(), 0);
+  });
 });
 
 test("the page distinguishes loading, empty, and a failed source", async () => {
-  fixture.mode = "empty";
-  fixture.delayMs = 350;
-  const loading = await newPage({ width: 1200, height: 800 });
-  await loading.goto(baseUrl);
-  await loading.getByText("Loading host plan limits…").waitFor();
-  await loading.getByText("No host plan-limit services were reported.").waitFor();
-  await loading.close();
+  let release!: () => void;
+  scenario.gate = new Promise((resolve) => { release = resolve; });
+  scenario.mode = "empty";
+  await withPage({ width: 1200, height: 800 }, async (page) => {
+    await page.goto(baseUrl);
+    await page.getByText("Loading host plan limits…").waitFor();
+    release();
+    await page.getByText("No host plan-limit services were reported.").waitFor();
+  });
 
   resetPlanUsageCacheForTests();
-  fixture.mode = "claude-error";
-  fixture.delayMs = 0;
-  const failed = await newPage({ width: 1200, height: 800 });
-  await failed.goto(baseUrl);
-  const claude = failed.locator(".plan-service").first();
-  await claude.locator(".plan-status-error").waitFor();
-  assert.equal(await claude.locator(".plan-dial-value").innerText(), "—", "a failed source shows no number, never 0%");
-  assert.match(await claude.locator(".plan-service-note").innerText(), /currently unreachable/);
-  await failed.close();
+  scenario.mode = "claude-error";
+  await withPage({ width: 1200, height: 800 }, async (page) => {
+    await page.goto(baseUrl);
+    const claude = page.locator(".plan-service").first();
+    await claude.locator(".plan-status-error").waitFor();
+    assert.equal(await claude.locator(".plan-dial-value").innerText(), "—", "a failed source shows no number, never 0%");
+    assert.match(await claude.locator(".plan-service-note").innerText(), /currently unreachable/);
+  });
 });
 
 test("the page stays contained at a phone-sized width", async () => {
-  const page = await newPage({ width: 390, height: 844 });
-  await page.goto(baseUrl);
-  await page.locator(".plan-service").first().waitFor();
-  const layout = await page.evaluate(() => {
-    const services = Array.from(document.querySelectorAll(".plan-service"), (element) => element.getBoundingClientRect());
-    return {
-      innerWidth: window.innerWidth,
-      documentWidth: document.documentElement.scrollWidth,
-      maxServiceRight: Math.max(...services.map((rect) => rect.right)),
-      minServiceLeft: Math.min(...services.map((rect) => rect.left)),
-    };
+  await withPage({ width: 390, height: 844 }, async (page) => {
+    await page.goto(baseUrl);
+    await page.locator(".plan-service").first().waitFor();
+    const layout = await page.evaluate(() => {
+      const services = Array.from(document.querySelectorAll(".plan-service"), (element) => element.getBoundingClientRect());
+      return {
+        innerWidth: window.innerWidth,
+        documentWidth: document.documentElement.scrollWidth,
+        maxServiceRight: Math.max(...services.map((rect) => rect.right)),
+        minServiceLeft: Math.min(...services.map((rect) => rect.left)),
+      };
+    });
+    assert.ok(layout.documentWidth <= layout.innerWidth, JSON.stringify(layout));
+    assert.ok(layout.maxServiceRight <= layout.innerWidth, JSON.stringify(layout));
+    assert.ok(layout.minServiceLeft >= 0, JSON.stringify(layout));
   });
-  assert.ok(layout.documentWidth <= layout.innerWidth, JSON.stringify(layout));
-  assert.ok(layout.maxServiceRight <= layout.innerWidth, JSON.stringify(layout));
-  assert.ok(layout.minServiceLeft >= 0, JSON.stringify(layout));
-  await page.close();
 });
 
-async function newPage(viewport: { width: number; height: number }): Promise<Page> {
+/** Opens a page, runs `body`, closes the page, then fails the test on any script error the page raised. */
+async function withPage(viewport: { width: number; height: number }, body: (page: Page) => Promise<void>): Promise<void> {
   const page = await browser.newPage({ viewport });
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  page.on("close", () => assert.deepEqual(errors, [], `browser errors: ${errors.join("; ")}`));
-  return page;
+  try {
+    await body(page);
+  } finally {
+    await page.close();
+  }
+  assert.deepEqual(errors, [], `browser errors: ${errors.join("; ")}`);
 }

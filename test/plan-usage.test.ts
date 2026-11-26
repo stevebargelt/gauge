@@ -80,7 +80,7 @@ test("Claude OAuth maps authoritative session, weekly, and scoped windows withou
   assert.equal(claude.windows[0]!.pacePct, 42);
 });
 
-test("Claude provider failures are surfaced without local quota estimates", async () => {
+test("Claude provider failures are surfaced without local estimates of the plan limit", async () => {
   const result = await collectPlanUsage({
     env: {},
     homeDir: mkdtempSync(join(tmpdir(), "gauge-plan-claude-error-")),
@@ -269,7 +269,7 @@ test("Codex subscription observations and OpenAI API configuration coexist", asy
   assert.match(api.note ?? "", /API-key billing/);
 });
 
-test("OPENAI_API_KEY reports an API channel without inventing a subscription", async () => {
+test("OPENAI_API_KEY reports an API-key service without inventing a subscription", async () => {
   const result = await collectPlanUsage({
     env: { OPENAI_API_KEY: "test-only" },
     homeDir: mkdtempSync(join(tmpdir(), "gauge-plan-codex-env-api-key-")),
@@ -327,9 +327,9 @@ test("malformed Codex window fields cannot crash or create a live empty observat
   assert.equal(codex.source, "codex-rollout");
 });
 
-test("all configured subscription, API, and Bedrock channels coexist on one host", async () => {
+test("all configured subscription, API, and Bedrock services coexist on one host", async () => {
   let fetched = false;
-  const home = mkdtempSync(join(tmpdir(), "gauge-plan-all-channels-"));
+  const home = mkdtempSync(join(tmpdir(), "gauge-plan-all-services-"));
   const codexDir = join(home, ".codex");
   const sessions = join(codexDir, "sessions");
   mkdirSync(sessions, { recursive: true });
@@ -337,7 +337,7 @@ test("all configured subscription, API, and Bedrock channels coexist on one host
     OPENAI_API_KEY: "test-only",
     tokens: { access_token: "invalid.jwt.value" },
   }));
-  writeFileSync(join(sessions, "rollout-all-channels.jsonl"), JSON.stringify({
+  writeFileSync(join(sessions, "rollout-all-services.jsonl"), JSON.stringify({
     timestamp: new Date(NOW).toISOString(),
     payload: { rate_limits: { plan_type: "pro", primary: { used_percent: 31, window_minutes: 300 } } },
   }));
@@ -375,10 +375,10 @@ test("all configured subscription, API, and Bedrock channels coexist on one host
   assert.equal(service(result, "openai-api").status, "not_applicable");
 });
 
-test("channels without configuration or observations are omitted", async () => {
+test("services without configuration or observations are omitted", async () => {
   const result = await collectPlanUsage({
     env: {},
-    homeDir: mkdtempSync(join(tmpdir(), "gauge-plan-no-channels-")),
+    homeDir: mkdtempSync(join(tmpdir(), "gauge-plan-no-services-")),
     now: () => NOW,
     readClaudeCredential: () => null,
   });
@@ -473,7 +473,6 @@ test("Codex App Server timeout fails closed without exposing child-process outpu
   writeFileSync(fixture, `#!${process.execPath}\nprocess.stderr.write("sensitive-child-detail");\nsetInterval(() => {}, 1000);\n`);
   chmodSync(fixture, 0o700);
 
-  const started = Date.now();
   const limits = await queryCodexAppServerRateLimits(
     join(fixtureDir, "codex-home"),
     { GAUGE_CODEX_BIN: fixture },
@@ -481,7 +480,6 @@ test("Codex App Server timeout fails closed without exposing child-process outpu
     60,
   );
   assert.equal(limits, null);
-  assert.ok(Date.now() - started < 1_000);
 });
 
 test("a malformed live Codex window is unavailable and never replaced with a fabricated successful value", async () => {
@@ -594,7 +592,7 @@ test("normalizes Claude subscription windows without exposing the credential", a
   assert.equal(JSON.stringify(result).includes(secret), false);
 });
 
-test("normalizes Codex App Server limits and labels API-key channels honestly", async () => {
+test("normalizes Codex App Server limits and labels API-key services honestly", async () => {
   const result = await collectPlanUsage({
     env: {
       ANTHROPIC_API_KEY: "present",

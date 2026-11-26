@@ -54,8 +54,8 @@ function render() {
 
       <div class="plan-usage-footnote">
         Subscription windows come from Anthropic's observed usage integration and Codex's local App Server.
-        A recent Codex rollout is used only as a stale fallback. API-key and Bedrock channels are shown
-        separately without invented subscription quotas.
+        A recent Codex rollout is used only as a stale fallback. API-key and Bedrock services are shown
+        separately without invented plan limits.
       </div>
     </section>
   `;
