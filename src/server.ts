@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { getPlanUsage } from "./plan-usage.js";
+import { getPlanUsage, type CollectorOptions } from "./plan-usage.js";
 import { samplePlanUsage } from "./sample-data.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -16,6 +16,8 @@ const STATIC_FILES: Record<string, { file: string; type: string }> = {
 
 export type AppServerOptions = {
   sample?: boolean;
+  /** Passed to the collector; tests use it to keep live credentials out of reach. */
+  collector?: CollectorOptions;
 };
 
 export function createAppServer(options: AppServerOptions = {}) {
@@ -43,7 +45,7 @@ async function route(req: IncomingMessage, res: ServerResponse, options: AppServ
 
   if (url.pathname === "/api/usage/limits") {
     const refresh = url.searchParams.get("refresh") === "1";
-    const data = options.sample ? samplePlanUsage() : await getPlanUsage(refresh);
+    const data = options.sample ? samplePlanUsage() : await getPlanUsage(refresh, options.collector);
     res.writeHead(200, {
       "Content-Type": "application/json; charset=utf-8",
       "Cache-Control": "no-store",

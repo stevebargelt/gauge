@@ -46,7 +46,7 @@ type ClaudeCredential = {
   rateLimitTier?: string;
 };
 
-type CollectorOptions = {
+export type CollectorOptions = {
   env?: NodeJS.ProcessEnv;
   homeDir?: string;
   fetchImpl?: typeof fetch;
