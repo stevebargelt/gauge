@@ -1,116 +1,88 @@
-# Live Usage Plan Limits
+# gauge
 
-A small, standalone local dashboard showing Claude Code and Codex subscription
-usage windows. It is an extracted, portable version of Forge's **Live usage —
-Plan limits & windows** panel.
+A local dashboard for the Claude Code and Codex **plan limits** on this Mac:
+one dial per window (5-hour, weekly, per-model weekly) with how much is used,
+when it resets, and the pace you're on. It runs at login and lives at
+<http://127.0.0.1:4312>.
 
-It does not require Forge, a database, React, or a build step. The server uses
-Node.js; the browser UI is plain JavaScript and CSS.
+gauge reads the sign-ins Claude Code and Codex already use. It shows only what
+it observed: a source that fails says so, and API-key and Bedrock services are
+listed without invented limits.
 
-## Fastest way to see it
+## Run it
 
-Requirements: Node.js 20 or newer.
-
-```sh
-npm install
-npm run sample
-```
-
-Open <http://127.0.0.1:4312>. Sample mode uses realistic fake data and does not
-read any credentials.
-
-To show the subscriptions already signed in on the computer:
+Requirements: Node.js 20 or newer, and Chrome for the browser tests.
 
 ```sh
-npm start
+npm ci
+npm run sample   # fake data; reads no credentials
+npm start        # this Mac's live sign-ins
 ```
 
-Keep the terminal open while using the page. Press `Ctrl+C` to stop it.
+### At login
 
-## What works
+```sh
+bin/install-login-agent     # install and start; run it from ~/code/gauge
+bin/uninstall-login-agent   # stop and remove
+```
 
-- Claude Code subscription windows: session/5-hour, weekly-all, and any
-  model-scoped weekly limits returned by Anthropic.
-- Codex/ChatGPT subscription windows: current rate limits from the local Codex
-  App Server.
-- A bounded scan of recent Codex rollout files when the live App Server query is
-  unavailable. This is clearly labeled stale.
-- Separate, honest rows for Anthropic API keys, OpenAI API keys, and Amazon
-  Bedrock. Those channels are usage-billed and do not have the subscription
-  windows shown for Claude Code or ChatGPT, so the dashboard does not invent
-  quota numbers.
-- Manual refresh, a 30-second server cache, reset countdowns, and pace
-  calculations.
-- Responsive desktop and phone layouts.
+The agent restarts gauge if it exits, and logs to `~/Library/Logs/gauge/gauge.log`.
+It records the `node` and `PATH` from the shell you install it from. Re-run the
+install after changing Node versions, or after moving `codex` or `claude`.
+`bin/install-login-agent --print` shows the definition without installing.
 
-Either CLI can be absent. The dashboard simply omits a subscription it cannot
-observe.
-
-## How it obtains the data
+## Where the readings come from
 
 ### Claude Code
 
-The collector looks for Claude Code's OAuth credential in:
+gauge looks for Claude Code's OAuth credential in:
 
-1. `CLAUDE_CONFIG_DIR/.credentials.json`, when `CLAUDE_CONFIG_DIR` is set;
+1. `$CLAUDE_CONFIG_DIR/.credentials.json`, when `CLAUDE_CONFIG_DIR` is set;
 2. otherwise `~/.claude/.credentials.json`;
 3. on macOS, the `Claude Code-credentials` Keychain item.
 
-It sends the OAuth access token from the server directly to Anthropic's observed
-usage integration and normalizes the response. This Anthropic endpoint is used
-by Claude Code but should not be treated as a stable public API contract.
+The server sends the token to the Anthropic usage endpoint that Claude Code
+itself uses (`/api/oauth/usage`). Anthropic does not document that endpoint, so
+it can change. If it does, the Claude service shows an error.
 
 ### Codex
 
-The collector starts:
+gauge starts `codex app-server --stdio` and calls `account/rateLimits/read`.
+If that does not return a usable result, gauge falls back to the latest
+rate-limit record in the recent rollout files under `~/.codex/sessions`, and
+marks that reading stale.
 
-```sh
-codex app-server --stdio
-```
+### API keys and Bedrock
 
-It initializes the local App Server and calls `account/rateLimits/read`. If that
-does not return a usable result, it scans a bounded set of recent rollout files
-under `~/.codex/sessions` for the latest observed rate-limit record.
-
-The App Server owns authentication. This project does not send a Codex token to
-the browser or to a third-party service.
+`ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and `CLAUDE_CODE_USE_BEDROCK=1` (with
+`AWS_PROFILE`) are listed as services, so you can see which ones are in play.
+These services are billed by use and have no plan limits.
 
 ## Security boundary
 
-- The server binds to `127.0.0.1` by default.
-- The browser receives only normalized plan names, percentages, window
-  durations, reset times, observation status, and explanatory notes.
-- Raw credentials and raw provider/App Server responses are never returned by
-  `/api/usage/limits`.
-- The browser application escapes provider-derived text before rendering it.
-- The API response uses `Cache-Control: no-store`.
-- The page uses a same-origin Content Security Policy.
+- The server binds to `127.0.0.1`.
+- The API response and the page carry only plan names, percentages, reset
+  times, status and notes. Credentials and raw provider responses stay in the
+  server process.
+- The page escapes provider text, uses a same-origin Content Security Policy,
+  and the API response is `Cache-Control: no-store`.
 
-Do not expose this server to the public internet without adding authentication.
-Even though it does not expose tokens, account plan and usage information is
-private.
-
-## Useful configuration
+## Configuration
 
 | Environment variable | Purpose |
 | --- | --- |
-| `PLAN_LIMITS_HOST` | Bind address; defaults to `127.0.0.1` |
-| `PLAN_LIMITS_PORT` | HTTP port; defaults to `4312` |
-| `PLAN_LIMITS_SAMPLE=1` | Use fake sample data |
-| `PLAN_LIMITS_CODEX_DIR` | Codex home directory; defaults to `CODEX_HOME`, then `~/.codex` |
-| `PLAN_LIMITS_CODEX_BIN` | Codex executable; defaults to `codex` |
-| `PLAN_LIMITS_DISABLE_CODEX_APP_SERVER=1` | Skip the live query and use only the rollout fallback |
-| `CLAUDE_CONFIG_DIR` | Claude configuration directory |
+| `GAUGE_HOST` | Bind address; defaults to `127.0.0.1` |
+| `GAUGE_PORT` | HTTP port; defaults to `4312` |
+| `GAUGE_SAMPLE=1` | Serve fake sample data |
+| `GAUGE_CODEX_DIR` | Codex home; defaults to `CODEX_HOME`, then `~/.codex` |
+| `GAUGE_CODEX_BIN` | Codex executable; defaults to `codex` |
+| `GAUGE_DISABLE_CODEX_APP_SERVER=1` | Skip the live Codex query; use only the rollout fallback |
+| `CLAUDE_CONFIG_DIR` | Claude Code configuration directory |
 
-The collector also notices `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
-`CLAUDE_CODE_USE_BEDROCK=1`, and `AWS_PROFILE` so it can render those channels
-without mislabeling them as subscription plans.
+## API
 
-## API contract
-
-`GET /api/usage/limits`
-
-Returns:
+`GET /api/usage/limits` returns one entry per service. Add `?refresh=1` to skip
+the server's 30-second cache.
 
 ```json
 {
@@ -125,13 +97,7 @@ Returns:
       "source": "codex-app-server",
       "observedAt": "2026-07-27T18:00:00.000Z",
       "windows": [
-        {
-          "label": "5h",
-          "usedPct": 61,
-          "resetsAt": "2026-07-27T21:00:00.000Z",
-          "elapsedPct": 50,
-          "pacePct": 122
-        }
+        { "label": "5h", "usedPct": 61, "resetsAt": "2026-07-27T21:00:00.000Z", "elapsedPct": 50, "pacePct": 122 }
       ],
       "note": null
     }
@@ -139,53 +105,11 @@ Returns:
 }
 ```
 
-Add `?refresh=1` to bypass the short-lived server cache.
+`status` is one of `live`, `stale`, `unavailable`, `not_applicable`,
+`not_configured` or `error`. `GET /health` returns `{"ok":true}`.
 
-## Putting it into another application
+## Origin
 
-The package deliberately separates collection from presentation:
-
-- `src/plan-usage.ts` — complete provider collection, normalization, caching,
-  fallbacks, and TypeScript response types.
-- `src/server.ts` — a tiny Node HTTP adapter and static-file server.
-- `public/app.js` — framework-free rendering and refresh state.
-- `public/styles.css` — all visual styling for the panel and demo page.
-- `src/sample-data.ts` — safe fake data for design and integration work.
-- `test/` — collector-contract and HTTP smoke tests.
-
-An existing Node server usually needs only:
-
-```ts
-import { getPlanUsage } from "./plan-usage.js";
-
-const data = await getPlanUsage(requestUrl.searchParams.get("refresh") === "1");
-response.end(JSON.stringify(data));
-```
-
-The browser component only depends on the normalized JSON contract, so it can
-be ported to React, Vue, Svelte, or another UI without moving credential access
-into the browser.
-
-## Prompt to give an implementation agent
-
-You can hand an agent this entire folder and say:
-
-> Integrate the Live Usage Plan Limits package into my application. Preserve
-> `src/plan-usage.ts` as a server-only module, expose its normalized response at
-> a same-origin API endpoint, and port the UI to my existing component and
-> styling system. Never send credentials or raw provider responses to the
-> browser. Keep sample mode for development and run the included typecheck and
-> tests before finishing.
-
-## Verification
-
-```sh
-npm run typecheck
-npm test
-```
-
-The source was extracted from the Forge dashboard on 2026-07-27. The upstream
-reference is:
-
-- <https://github.com/stevebargelt/forge/blob/main/dashboard/src/plan-usage.ts>
-- <https://github.com/stevebargelt/forge/blob/main/dashboard/client/usage-limits.js>
+gauge started as the "Live usage: plan limits & windows" panel of the Forge
+dashboard. It was extracted on 2026-07-27, and continued here after Forge was
+retired.

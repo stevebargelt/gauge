@@ -1,20 +1,22 @@
 {
-  "name": "live-usage-plan-limits",
+  "name": "gauge",
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Standalone local dashboard for Claude Code and Codex subscription usage windows.",
+  "description": "Local dashboard for Claude Code and Codex plan limits.",
   "scripts": {
     "start": "tsx src/server.ts",
     "sample": "tsx src/server.ts --sample",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test test/*.test.ts"
+    "test": "tsx --test test/*.test.ts",
+    "test:browser": "tsx --test test/browser/*.test.ts"
   },
   "engines": {
     "node": ">=20"
   },
   "devDependencies": {
     "@types/node": "^22.9.0",
+    "playwright-core": "^1.65.1",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3"
   }

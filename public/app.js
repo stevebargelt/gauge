@@ -48,14 +48,14 @@ function render() {
         ${state.loading && services.length === 0
           ? `<div class="plan-empty">Loading host plan limits…</div>`
           : services.length === 0
-            ? `<div class="plan-empty">No host plan-limit services were reported. See the setup guide in README.md.</div>`
+            ? `<div class="plan-empty">No host plan-limit services were reported. Sign in to Claude Code or Codex on this Mac.</div>`
             : services.map(serviceRow).join("")}
       </div>
 
       <div class="plan-usage-footnote">
         Subscription windows come from Anthropic's observed usage integration and Codex's local App Server.
-        A recent Codex rollout is used only as a stale fallback. API-key and Bedrock channels are shown
-        separately without invented subscription quotas.
+        A recent Codex rollout is used only as a stale fallback. API-key and Bedrock services are shown
+        separately without invented plan limits.
       </div>
     </section>
   `;

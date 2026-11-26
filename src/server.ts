@@ -2,7 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { getPlanUsage } from "./plan-usage.js";
+import { getPlanUsage, type CollectorOptions } from "./plan-usage.js";
 import { samplePlanUsage } from "./sample-data.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -16,6 +16,8 @@ const STATIC_FILES: Record<string, { file: string; type: string }> = {
 
 export type AppServerOptions = {
   sample?: boolean;
+  /** Passed to the collector; tests use it to keep live credentials out of reach. */
+  collector?: CollectorOptions;
 };
 
 export function createAppServer(options: AppServerOptions = {}) {
@@ -43,7 +45,7 @@ async function route(req: IncomingMessage, res: ServerResponse, options: AppServ
 
   if (url.pathname === "/api/usage/limits") {
     const refresh = url.searchParams.get("refresh") === "1";
-    const data = options.sample ? samplePlanUsage() : await getPlanUsage(refresh);
+    const data = options.sample ? samplePlanUsage() : await getPlanUsage(refresh, options.collector);
     res.writeHead(200, {
       "Content-Type": "application/json; charset=utf-8",
       "Cache-Control": "no-store",
@@ -83,14 +85,14 @@ function json(res: ServerResponse, status: number, value: unknown): void {
 
 const launchedDirectly = process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1]);
 if (launchedDirectly) {
-  const host = process.env.PLAN_LIMITS_HOST ?? "127.0.0.1";
-  const port = Number(process.env.PLAN_LIMITS_PORT ?? "4312");
+  const host = process.env.GAUGE_HOST ?? "127.0.0.1";
+  const port = Number(process.env.GAUGE_PORT ?? "4312");
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
-    throw new Error(`Invalid PLAN_LIMITS_PORT: ${process.env.PLAN_LIMITS_PORT}`);
+    throw new Error(`Invalid GAUGE_PORT: ${process.env.GAUGE_PORT}`);
   }
-  const sample = process.argv.includes("--sample") || process.env.PLAN_LIMITS_SAMPLE === "1";
+  const sample = process.argv.includes("--sample") || process.env.GAUGE_SAMPLE === "1";
   const server = createAppServer({ sample });
   server.listen(port, host, () => {
-    console.log(`Live usage plan limits: http://${host}:${port}${sample ? " (sample data)" : ""}`);
+    console.log(`gauge: http://${host}:${port}${sample ? " (sample data)" : ""}`);
   });
 }
