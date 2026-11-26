@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Live Usage Plan Limits</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="page">
+    <header class="page-heading">
+      <div class="eyebrow">local account telemetry</div>
+      <h1>AI subscription headroom</h1>
+      <p>Current Claude Code and Codex usage windows, read from the tools already signed in on this computer.</p>
+    </header>
+    <div id="plan-limits" aria-live="polite"></div>
+    <footer>
+      This server binds to localhost by default. Raw credentials never leave the server and are never returned by its API.
+    </footer>
+  </main>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
