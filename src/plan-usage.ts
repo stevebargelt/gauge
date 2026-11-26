@@ -131,7 +131,7 @@ export async function collectPlanUsage(options: CollectorOptions = {}): Promise<
       claudeVersion: options.claudeVersion,
     }),
     collectCodexUsage(
-      env.PLAN_LIMITS_CODEX_DIR ?? env.CODEX_HOME ?? join(homeDir, ".codex"),
+      env.GAUGE_CODEX_DIR ?? env.CODEX_HOME ?? join(homeDir, ".codex"),
       now,
       env,
       options.codexAppServerQuery,
@@ -336,7 +336,7 @@ async function collectCodexUsage(
 ): Promise<PlanUsageService[]> {
   const authPath = join(codexDir, "auth.json");
   const auth = readCodexAuth(authPath);
-  const liveRateLimits = env.PLAN_LIMITS_DISABLE_CODEX_APP_SERVER === "1"
+  const liveRateLimits = env.GAUGE_DISABLE_CODEX_APP_SERVER === "1"
     ? null
     : await (appServerQuery ?? queryCodexAppServerRateLimits)(codexDir, env, now);
   const rateLimits = liveRateLimits ?? readCodexRateLimits(join(codexDir, "sessions"));
@@ -464,7 +464,7 @@ export function queryCodexAppServerRateLimits(
   timeoutMs = CODEX_APP_SERVER_TIMEOUT_MS,
 ): Promise<CodexRateLimits | null> {
   return new Promise((resolve) => {
-    const codexBin = env.PLAN_LIMITS_CODEX_BIN || "codex";
+    const codexBin = env.GAUGE_CODEX_BIN || "codex";
     let settled = false;
     let initialized = false;
     let proc: ChildProcessWithoutNullStreams;
@@ -529,8 +529,8 @@ export function queryCodexAppServerRateLimits(
         id: 1,
         params: {
           clientInfo: {
-            name: "plan_limits_dashboard",
-            title: "Plan Limits Dashboard",
+            name: "gauge",
+            title: "gauge",
             version: "0.1.0",
           },
         },
