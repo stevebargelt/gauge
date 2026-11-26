@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# Installs gauge as a launchd user agent: it starts at login, restarts if it
+# exits, and serves http://127.0.0.1:${GAUGE_PORT:-4312}.
+#
+# Usage: bin/install-login-agent [--print]
+#   --print  write the agent definition to stdout and change nothing.
+#
+# The agent runs gauge against this Mac's live Claude Code and Codex sign-ins.
+# Run it from the clone you want served (normally ~/code/gauge), after `npm ci`.
+set -euo pipefail
+
+LABEL="io.github.stevebargelt.gauge"
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
+LOG_DIR="$HOME/Library/Logs/gauge"
+PORT="${GAUGE_PORT:-4312}"
+
+NODE="$(command -v node || true)"
+TSX="$REPO/node_modules/tsx/dist/cli.mjs"
+[[ -n "$NODE" ]] || { echo "node is not on PATH" >&2; exit 1; }
+[[ -f "$TSX" ]] || { echo "tsx is missing; run 'npm ci' in $REPO first" >&2; exit 1; }
+
+xml() { sed -e 's/&/\&amp;/g' -e 's/</\&lt;/g' -e 's/>/\&gt;/g' <<<"$1"; }
+
+# launchd starts agents with a minimal PATH; gauge spawns `codex` and `claude`,
+# so the agent keeps the PATH this script was run with.
+definition() {
+  cat <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$LABEL</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$(xml "$NODE")</string>
+    <string>$(xml "$TSX")</string>
+    <string>$(xml "$REPO/src/server.ts")</string>
+  </array>
+  <key>WorkingDirectory</key><string>$(xml "$REPO")</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>$(xml "$PATH")</string>
+    <key>USER</key><string>$(xml "$USER")</string>
+    <key>GAUGE_PORT</key><string>$(xml "$PORT")</string>
+  </dict>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>10</integer>
+  <key>StandardOutPath</key><string>$(xml "$LOG_DIR/gauge.log")</string>
+  <key>StandardErrorPath</key><string>$(xml "$LOG_DIR/gauge.log")</string>
+</dict>
+</plist>
+PLIST
+}
+
+if [[ "${1:-}" == "--print" ]]; then
+  definition
+  exit 0
+fi
+
+mkdir -p "$LOG_DIR" "$(dirname "$PLIST")"
+launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
+definition >"$PLIST"
+plutil -lint -s "$PLIST"
+launchctl bootstrap "gui/$(id -u)" "$PLIST"
+echo "gauge is running at http://127.0.0.1:$PORT (logs: $LOG_DIR/gauge.log)"

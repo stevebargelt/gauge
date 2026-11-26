@@ -48,7 +48,7 @@ function render() {
         ${state.loading && services.length === 0
           ? `<div class="plan-empty">Loading host plan limits…</div>`
           : services.length === 0
-            ? `<div class="plan-empty">No host plan-limit services were reported. See the setup guide in README.md.</div>`
+            ? `<div class="plan-empty">No host plan-limit services were reported. Sign in to Claude Code or Codex on this Mac.</div>`
             : services.map(serviceRow).join("")}
       </div>
 
